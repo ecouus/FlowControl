@@ -99,7 +99,7 @@ curl -sS -O https://raw.githubusercontent.com/ecouus/TrafficControlX/refs/heads/
 
 ## 许可证
 
-本项目采用MIT许可证。详见LICENSE文件。
+本项目采用MIT许可证。详见[LICENSE文件](https://github.com/ecouus/TrafficControlX/blob/main/LICENSE)。
 
 ## 贡献
 
