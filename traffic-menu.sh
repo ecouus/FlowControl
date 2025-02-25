@@ -1,5 +1,5 @@
 #!/bin/bash
-#创建连接符号，输入trax快速调用
+#创建连接符号，输入tx快速调用
 ln -sf ~/traffic-menu.sh /usr/local/bin/tx
 
 # 颜色定义
