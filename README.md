@@ -27,25 +27,19 @@
 - 依赖包：curl, bc, jq, nftables
 - 如需使用Telegram通知功能，需有有效的Telegram Bot Token
 
-## 安装方法
+## 快速安装与使用
+使用以下一行命令可以快速下载、安装并启动流量监控系统：
 
 ```bash
-# 下载安装脚本
-wget https://raw.githubusercontent.com/ecouus/FlowControl/main/install.sh -O install.sh
-
-# 赋予执行权限
-chmod +x install.sh
-
-# 执行安装
-sudo bash install.sh
+curl -sS -O https://raw.githubusercontent.com/ecouus/FlowControl/refs/heads/main/traffic-menu.sh && sudo chmod +x traffic-menu.sh && ./traffic-menu.sh
 ```
 
-## 使用方法
+安装完成后，系统会自动进入主菜单界面，您可以开始配置和使用流量监控系统。
 
-执行以下命令打开流量监控系统控制面板：
+对于后续使用，您可以直接运行：
 
 ```bash
-traffic-monitor-menu
+./traffic-menu.sh
 ```
 
 ### 主菜单选项
