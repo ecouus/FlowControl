@@ -484,8 +484,9 @@ main() {
                 show_help
                 exit 1
             fi
-            add_port_monitor $2 $3 $4 "$5" ${6:-0}
+            add_port_monitor "$2" "$3" "$4" "$5" "$6"
             ;;
+
         
         modify)
             if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
@@ -538,4 +539,4 @@ main() {
     esac
 }
 
-main "$@"
+main "$@" 
