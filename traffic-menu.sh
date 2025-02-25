@@ -1286,7 +1286,7 @@ uninstall_system() {
     echo -e "${CYAN}=============================${PLAIN}"
     echo
     
-    echo -e "${RED}警告: 此操作将完全卸载流量监控系统，包括所有配置、日志和防火墙规则！${PLAIN}"
+    echo -e "${RED}警告: 此操作将完全卸载流量监控系统，包括所有配置和日志！${PLAIN}"
     read -p "确定要继续吗? (y/n): " confirm
     
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
@@ -1300,84 +1300,75 @@ uninstall_system() {
     echo
     echo -e "${YELLOW}正在卸载流量监控系统...${PLAIN}"
     
-    # 清除nftables规则 - 更彻底的清理
-    echo -e "${YELLOW}清除nftables规则...${PLAIN}"
-    
-    # 清除监控表
-    if nft list table inet traffic_monitor &>/dev/null; then
-        echo -e "${YELLOW}- 清除traffic_monitor表...${PLAIN}"
-        nft flush table inet traffic_monitor
-        nft delete table inet traffic_monitor
-    fi
-    
-    # 清除阻断表
+    # 清除流量阻断表 (traffic_blocker)
     if nft list table inet traffic_blocker &>/dev/null; then
-        echo -e "${YELLOW}- 清除traffic_blocker表...${PLAIN}"
+        echo -e "${YELLOW}清除流量阻断nftables表...${PLAIN}"
         nft flush table inet traffic_blocker
         nft delete table inet traffic_blocker
     fi
     
-    # 更新nftables保存的规则
-    echo -e "${YELLOW}- 保存nftables规则更改...${PLAIN}"
+    # 清除流量监控表 (traffic_monitor)
+    if nft list table inet traffic_monitor &>/dev/null; then
+        echo -e "${YELLOW}清除流量监控nftables表...${PLAIN}"
+        nft flush table inet traffic_monitor
+        nft delete table inet traffic_monitor
+    fi
+    
+    # 保存nftables更改
     nft list ruleset > /etc/nftables.conf 2>/dev/null
     
-    # 清除iptables规则（更彻底的清理）
+    # 清除iptables规则（针对所有配置中记录的端口）
     if command -v iptables-save >/dev/null 2>&1; then
-        echo -e "${YELLOW}清除iptables规则...${PLAIN}"
-        
-        # 清除所有可能的监控链
-        echo -e "${YELLOW}- 清除监控链规则...${PLAIN}"
-        for chain in $(iptables -L | grep "Chain TRACK_PORT_" | awk '{print $2}'); do
-            port=${chain#TRACK_PORT_}
-            echo -e "${YELLOW}  - 清除端口 $port 的规则...${PLAIN}"
-            
-            # 删除引用该链的规则
-            iptables -D INPUT -p tcp --dport $port -j $chain 2>/dev/null
-            iptables -D INPUT -p udp --dport $port -j $chain 2>/dev/null
-            iptables -D OUTPUT -p tcp --sport $port -j $chain 2>/dev/null
-            iptables -D OUTPUT -p udp --sport $port -j $chain 2>/dev/null
-            
-            # 清空并删除自定义链
-            iptables -F $chain 2>/dev/null
-            iptables -X $chain 2>/dev/null
-        done
-        
-        # 清除所有用于阻断的REJECT和DROP规则
-        echo -e "${YELLOW}- 清除阻断规则...${PLAIN}"
-        # 获取所有被阻断的端口
-        blocked_ports=$(iptables-save | grep -E "(REJECT|DROP)" | grep -E "dport|sport" | grep -oE "--[ds]port [0-9]+" | awk '{print $2}' | sort | uniq)
-        
-        for port in $blocked_ports; do
-            echo -e "${YELLOW}  - 清除端口 $port 的阻断规则...${PLAIN}"
-            iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
-            iptables -D INPUT -p udp --dport $port -j REJECT 2>/dev/null
-            iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
-            iptables -D OUTPUT -p udp --sport $port -j REJECT 2>/dev/null
-            
-            iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
-            iptables -D INPUT -p udp --dport $port -j DROP 2>/dev/null
-            iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
-            iptables -D OUTPUT -p udp --sport $port -j DROP 2>/dev/null
-        done
-        
-        # 保存iptables规则
-        if [ -f /etc/debian_version ]; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null
-        elif [ -f /etc/redhat-release ]; then
-            iptables-save > /etc/sysconfig/iptables 2>/dev/null
+        echo -e "${YELLOW}清除iptables监控规则...${PLAIN}"
+        if [ -f "$CONFIG_FILE" ]; then
+            while IFS=: read -r port _ || [[ -n "$port" ]]; do
+                # 跳过注释或空行
+                [[ $port =~ ^#.*$ || -z $port ]] && continue
+                chain_name="TRACK_PORT_$port"
+                echo -e "${YELLOW}- 清除端口 $port 的监控规则...${PLAIN}"
+                
+                # 删除 INPUT/OUTPUT 中指向该链的规则
+                iptables -D INPUT -p tcp --dport $port -j $chain_name 2>/dev/null
+                iptables -D INPUT -p udp --dport $port -j $chain_name 2>/dev/null
+                iptables -D OUTPUT -p tcp --sport $port -j $chain_name 2>/dev/null
+                iptables -D OUTPUT -p udp --sport $port -j $chain_name 2>/dev/null
+                
+                # 清空并删除自定义链
+                iptables -F $chain_name 2>/dev/null
+                iptables -X $chain_name 2>/dev/null
+            done < "$CONFIG_FILE"
         fi
     fi
     
-    # 删除定时任务（过滤掉包含 "traffic-" 的任务）
-    echo -e "${YELLOW}删除定时任务...${PLAIN}"
-    crontab -l 2>/dev/null | grep -v "traffic-" | crontab -
+    # 清除iptables阻断规则 (针对配置文件中的端口和block_status.txt中记录的端口)
+    echo -e "${YELLOW}清除iptables阻断规则...${PLAIN}"
     
-    # 停止并删除systemd服务
-    echo -e "${YELLOW}停止并删除systemd服务...${PLAIN}"
-    systemctl stop traffic-bot.service 2>/dev/null
-    systemctl disable traffic-bot.service 2>/dev/null
-    rm -f /etc/systemd/system/traffic-bot.service
-    systemctl daemon-reload
+    # 首先从block_status.txt中读取阻断端口
+    if [ -f "$SCRIPT_DIR/block_status.txt" ]; then
+        echo -e "${YELLOW}- 从阻断状态文件中清除规则...${PLAIN}"
+        while IFS=: read -r port _ || [[ -n "$port" ]]; do
+            echo -e "${YELLOW}  - 清除端口 $port 的阻断规则...${PLAIN}"
+            iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
+            iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
+            iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
+            iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
+        done < "$SCRIPT_DIR/block_status.txt"
+    fi
+    
+    # 然后从config.ini文件中获取所有配置的端口并清除它们的阻断规则
+    if [ -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}- 从配置文件中清除可能的阻断规则...${PLAIN}"
+        while IFS=: read -r port _ || [[ -n "$port" ]]; do
+            # 跳过注释或空行
+            [[ $port =~ ^#.*$ || -z $port ]] && continue
+            
+            echo -e "${YELLOW}  - 清除端口 $port 的阻断规则...${PLAIN}"
+            iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
+            iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
+            iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
+            iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
+        done < "$CONFIG_FILE"
+    fi
     
     # 杀死所有相关进程
     echo -e "${YELLOW}终止相关进程...${PLAIN}"
@@ -1385,16 +1376,26 @@ uninstall_system() {
     pkill -f "traffic-block" 2>/dev/null
     pkill -f "tg_bot.sh" 2>/dev/null
     
-    # 删除添加的符号链接
-    echo -e "${YELLOW}删除符号链接...${PLAIN}"
-    rm -f /usr/local/bin/traffic-monitor
-    rm -f /usr/local/bin/tx
+    # 删除定时任务（过滤掉包含 "traffic-" 的任务）
+    echo -e "${YELLOW}删除定时任务...${PLAIN}"
+    crontab -l 2>/dev/null | grep -v "traffic-" | crontab -
+    
+    # 停止并删除 systemd 服务（例如 Telegram Bot 服务）
+    if [ -f "/etc/systemd/system/traffic-bot.service" ]; then
+        echo -e "${YELLOW}停止并删除 systemd 服务 (traffic-bot.service)...${PLAIN}"
+        systemctl stop traffic-bot.service 2>/dev/null
+        systemctl disable traffic-bot.service 2>/dev/null
+        rm -f /etc/systemd/system/traffic-bot.service
+        systemctl daemon-reload
+    fi
     
     # 删除安装的脚本和配置目录
     echo -e "${YELLOW}删除脚本和配置文件...${PLAIN}"
+    rm -f /usr/local/bin/traffic-monitor
+    rm -f /usr/local/bin/tx
     rm -rf "$SCRIPT_DIR"
     
-    echo -e "${GREEN}流量监控系统已成功卸载! 所有组件和防火墙规则已清理。${PLAIN}"
+    echo -e "${GREEN}流量监控系统已成功卸载! 所有相关规则已清理干净。${PLAIN}"
     
     echo
     echo -e "${CYAN}=============================${PLAIN}"
