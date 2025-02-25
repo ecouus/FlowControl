@@ -77,21 +77,6 @@ check_installation() {
     fi
 }
 
-# 显示所有端口流量状态
-show_all_status() {
-    clear
-    echo -e "${CYAN}=============================${PLAIN}"
-    echo -e "${CYAN}      所有端口流量状态      ${PLAIN}"
-    echo -e "${CYAN}=============================${PLAIN}"
-    echo
-    
-    traffic-monitor
-    
-    echo
-    echo -e "${CYAN}=============================${PLAIN}"
-    echo
-    read -n 1 -s -r -p "按任意键继续..."
-}
 
 # 显示端口列表
 show_port_list() {
@@ -100,33 +85,49 @@ show_port_list() {
     echo -e "${CYAN}      当前监控端口列表      ${PLAIN}"
     echo -e "${CYAN}=============================${PLAIN}"
     echo
-    
+
     if [ ! -f "$CONFIG_FILE" ]; then
         echo -e "${YELLOW}配置文件不存在，请先初始化系统。${PLAIN}"
         return
     fi
-    
-    echo -e "${BLUE}端口\t限额(GB)\t开始日期\t用户名${PLAIN}"
-    echo -e "${BLUE}----------------------------------------${PLAIN}"
-    
+
+    # 更新表头，增加流量使用和限制状态
+    echo -e "${BLUE}端口\t限额(GB)\t开始日期\t用户名\t流量使用\t是否被阻断${PLAIN}"
+    echo -e "${BLUE}----------------------------------------------------------------------------${PLAIN}"
+
     local count=0
     while IFS=: read -r port limit_gb start_date user_name || [[ -n "$port" ]]; do
         # 跳过注释和空行
         [[ $port =~ ^#.*$ || -z $port ]] && continue
-        
-        echo -e "${GREEN}$port\t$limit_gb\t\t$start_date\t$user_name${PLAIN}"
+
+        # 获取当前端口的流量使用信息
+        local usage_info
+        usage_info=$(traffic-monitor status $port 2>/dev/null | grep "流量使用:")
+        local usage_display="N/A"
+        if [[ $usage_info =~ 流量使用:\ ([0-9.]+)GB\ /\ ([0-9.]+)GB\ \(([0-9.]+)%\) ]]; then
+            usage_display="${BASH_REMATCH[1]}GB/${BASH_REMATCH[2]}GB (${BASH_REMATCH[3]}%)"
+        fi
+
+        # 检查是否被限制（存在于阻断状态文件中）
+        local block_status="未阻断"
+        if [ -f "$SCRIPT_DIR/block_status.txt" ] && grep -q "^$port:" "$SCRIPT_DIR/block_status.txt"; then
+            block_status="已阻断"
+        fi
+
+        echo -e "${GREEN}$port\t$limit_gb\t\t$start_date\t$user_name\t$usage_display\t$block_status${PLAIN}"
         ((count++))
-    done < $CONFIG_FILE
-    
+    done < "$CONFIG_FILE"
+
     if [ $count -eq 0 ]; then
         echo -e "${YELLOW}没有找到已配置的端口监控。${PLAIN}"
     fi
-    
+
     echo
     echo -e "${CYAN}=============================${PLAIN}"
     echo -e "共找到 ${GREEN}$count${PLAIN} 个监控端口"
     echo
 }
+
 
 # 添加端口监控
 add_port_monitor() {
@@ -1207,24 +1208,19 @@ port_management() {
 # 主菜单
 show_menu() {
     clear
-    echo -e "${CYAN}=============================${PLAIN}"
-    echo -e "${CYAN}   Linux流量监控与限制系统   ${PLAIN}"
-    echo -e "${CYAN}=============================${PLAIN}"
+    echo -e "${CYAN}==========================================${PLAIN}"
+    echo -e "        ${CYAN}★ Linux 流量监控与限制系统 ★${PLAIN}"
+    echo -e "${CYAN}==========================================${PLAIN}"
+    echo -e "  ${GREEN}1.${PLAIN} 查看端口监控列表      ${GREEN}2.${PLAIN} 重置流量计数器"
+    echo -e "  ${GREEN}3.${PLAIN} 添加端口监控          ${GREEN}4.${PLAIN} 删除端口监控"
     echo
-    echo -e "${GREEN}1.${PLAIN} 显示所有端口流量状态"
-    echo -e "${GREEN}2.${PLAIN} 查看端口监控列表"
-    echo -e "${GREEN}3.${PLAIN} 添加端口监控"
-    echo -e "${GREEN}4.${PLAIN} 删除端口监控"
-    echo -e "${GREEN}5.${PLAIN} 重置流量计数器"
-    echo -e "${GREEN}6.${PLAIN} 设置Telegram通知"
-    # 在这里添加新的菜单选项
-    echo -e "${GREEN}7.${PLAIN} 流量超限阻断设置"
-    echo -e "${RED}9.${PLAIN} 卸载监控系统"
-    echo -e "${GREEN}0.${PLAIN} 退出脚本"
+    echo -e "  ${GREEN}5.${PLAIN} 流量超限阻断设置      ${GREEN}6.${PLAIN} 设置 Telegram 通知"
     echo
-    echo -e "${CYAN}=============================${PLAIN}"
+    echo -e "  ${RED}9.${PLAIN} 卸载监控系统          ${GREEN}0.${PLAIN} 退出脚本"
+    echo -e "${CYAN}==========================================${PLAIN}"
     echo
 }
+
 
 
 # 卸载系统
@@ -1283,11 +1279,11 @@ while true; do
     
     case $choice in
         1)
-            show_all_status
-            ;;
-        2)
             show_port_list
             read -n 1 -s -r -p "按任意键继续..."
+            ;;
+        2)
+            reset_counter
             ;;
         3)
             add_port_monitor
@@ -1296,13 +1292,10 @@ while true; do
             delete_port_monitor
             ;;
         5)
-            reset_counter
+            setup_block_option
             ;;
         6)
             setup_telegram
-            ;;
-        7)
-            setup_block_option
             ;;
         9)
             uninstall_system
