@@ -119,29 +119,7 @@ reset_counter() {
         sudo iptables -Z $chain_name
     fi
     
-    # 解除阻断逻辑
-    if [ -f "$SCRIPT_DIR/block_status.txt" ]; then
-        # 从阻断状态文件中移除该端口
-        grep -v "^$port:" "$SCRIPT_DIR/block_status.txt" > "$SCRIPT_DIR/block_status.txt.tmp"
-        mv "$SCRIPT_DIR/block_status.txt.tmp" "$SCRIPT_DIR/block_status.txt"
-        
-        # 解除nftables阻断
-        if [ $USE_NFT -eq 1 ]; then
-            # 获取并删除与该端口相关的阻断规则
-            local handles=$(sudo nft -a list table inet traffic_blocker | grep "tcp dport $port" | grep -o 'handle [0-9]*' | awk '{print $2}')
-            for handle in $handles; do
-                sudo nft delete rule inet traffic_blocker input handle $handle 2>/dev/null
-            done
-        else
-            # 解除iptables阻断
-            sudo iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
-            sudo iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
-            sudo iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
-            sudo iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
-        fi
-    fi
-    
-    echo "端口 $port 的计数器已重置，阻断状态已解除"
+    echo "端口 $port 的计数器已重置"
 }
 
 # 函数: 检查是否需要自动重置计数器（新增自动重置功能）
