@@ -13,7 +13,7 @@ SCRIPT_DIR="/root/ecouu"
 MONITOR_SCRIPT="$SCRIPT_DIR/traffic-monitor.sh"
 CONFIG_FILE="$SCRIPT_DIR/config.ini"
 TELEGRAM_CONFIG="$SCRIPT_DIR/telegram.conf"
-GITHUB_URL="https://raw.githubusercontent.com/ecouus/FlowControl/refs/heads/main/traffic-monitor.sh"
+GITHUB_URL="https://raw.githubusercontent.com/ecouus/TrafficControlX/refs/heads/main/traffic-monitor.sh"
 
 # 检查root权限
 check_root() {
