@@ -84,30 +84,20 @@ curl -sS -O https://raw.githubusercontent.com/ecouus/TrafficControlX/refs/heads/
 
 ## 更新日志
 
-### v1.0.0 (2023-10-15)
+### v1.0.0 (2025-02-25)
 - 初始版本发布
 - 支持基本的端口流量监控功能
 
-### v1.1.0 (2023-10-30)
+### v1.1.0 (2023-02-25)
 - 添加Telegram通知功能
 - 增强用户界面体验
 
-### v1.2.0 (2023-11-15)
-- 添加流量超限阻断功能
-- 支持多种阻断策略
-- 改进流量统计算法
-
-## 许可证
-
-本项目采用MIT许可证。详见[LICENSE文件](https://github.com/ecouus/TrafficControlX/blob/main/LICENSE)。
+### v1.2.0 (2023-02-25)
+- 增加自动重置功能
 
 ## 贡献
-
-欢迎贡献代码、报告问题或提出功能建议。请通过GitHub Issues或Pull Requests参与项目开发。
-
-## 联系方式
-
-有任何问题或建议，请通过GitHub Issues或以下方式联系作者：
-
-- Telegram: [@ecouus](https://t.me/ecouus)
-- Email: ecouus@example.com
+如果你想要贡献代码或改进我们的脚本，非常欢迎！请通过Pull Request或Issue与我联系。
+## 许可证
+本项目采用 MIT 许可证。有关更多详细信息，请查看 [LICENSE](LICENSE) 文件。
+## 免责声明
+本项目中的脚本部分收集自互联网，作者对脚本的安全性和功能性不做任何承诺，使用者需严格遵守当地的法律法规，在使用脚本时应自行承担风险。
