@@ -1,5 +1,5 @@
 #!/bin/bash
-#创建连接符号，输入tx快速调用
+#创建连接符号，输入trax快速调用
 ln -sf ~/traffic-menu.sh /usr/local/bin/tx
 
 # 颜色定义
@@ -136,8 +136,8 @@ add_port_monitor() {
     echo -e "${CYAN}       添加新的端口监控       ${PLAIN}"
     echo -e "${CYAN}=============================${PLAIN}"
     echo
-    
-    # 获取端口
+
+    # 获取端口号
     local port=""
     while [[ ! $port =~ ^[0-9]+$ ]] || [ $port -lt 1 ] || [ $port -gt 65535 ]; do
         read -p "请输入端口号 (1-65535): " port
@@ -145,7 +145,20 @@ add_port_monitor() {
             echo -e "${RED}无效的端口号，请输入1-65535之间的数字。${PLAIN}"
         fi
     done
-    
+
+    # 检查是否已添加该端口监控（如果配置文件存在）
+    if [ -f "$CONFIG_FILE" ] && grep -qE "^$port:" "$CONFIG_FILE"; then
+         read -p "端口 $port 的监控配置已存在，是否覆盖？(y/n): " confirm
+         if [[ ! $confirm =~ ^[Yy]$ ]]; then
+             echo -e "${YELLOW}操作已取消。${PLAIN}"
+             read -n 1 -s -r -p "按任意键继续..."
+             return
+         else
+             # 删除原有配置
+             sed -i "/^$port:/d" "$CONFIG_FILE"
+         fi
+    fi
+
     # 获取限额
     local limit=""
     while [[ ! $limit =~ ^[0-9]+$ ]]; do
@@ -154,27 +167,28 @@ add_port_monitor() {
             echo -e "${RED}无效的限额，请输入数字。${PLAIN}"
         fi
     done
-    
-    # 获取用户名
+
+    # 获取用户名或服务标识
     local user_name=""
     read -p "请输入用户名或服务标识: " user_name
     if [ -z "$user_name" ]; then
         user_name="端口${port}用户"
     fi
-    
+
     # 添加监控
     echo
     echo -e "${YELLOW}正在添加端口 $port 的监控配置...${PLAIN}"
     traffic-monitor add $port $limit $(date +%Y-%m-%d) "$user_name"
-    
-    # 保存规则
+
+    # 保存nftables规则
     nft list ruleset > /etc/nftables.conf 2>/dev/null
-    
+
     echo
     echo -e "${CYAN}=============================${PLAIN}"
     echo
     read -n 1 -s -r -p "按任意键继续..."
 }
+
 
 # 删除端口监控
 delete_port_monitor() {
