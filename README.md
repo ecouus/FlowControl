@@ -1,4 +1,4 @@
-# FlowControl
+# TrafficControlX
 #### 流量监控与限制系统
 
 ![GitHub](https://img.shields.io/badge/license-MIT-blue)
@@ -29,9 +29,8 @@
 
 ## 快速安装与使用
 使用以下一行命令可以快速下载、安装并启动流量监控系统：
-
 ```bash
-curl -sS -O https://raw.githubusercontent.com/ecouus/FlowControl/refs/heads/main/traffic-menu.sh && sudo chmod +x traffic-menu.sh && ./traffic-menu.sh
+curl -sS -O https://raw.githubusercontent.com/ecouus/TrafficControlX/refs/heads/main/traffic-menu.sh && sudo chmod +x traffic-menu.sh && ./traffic-menu.sh
 ```
 
 安装完成后，系统会自动进入主菜单界面，您可以开始配置和使用流量监控系统。
