@@ -1288,14 +1288,43 @@ uninstall_system() {
         nft delete table inet traffic_monitor
     fi
     
-    # 删除定时任务
+    # 清除iptables规则（针对所有配置中记录的端口）
+    if command -v iptables-save >/dev/null 2>&1; then
+        if [ -f "$CONFIG_FILE" ]; then
+            while IFS=: read -r port _; do
+                # 跳过注释或空行
+                [[ $port =~ ^#.*$ || -z $port ]] && continue
+                chain_name="TRACK_PORT_$port"
+                echo -e "${YELLOW}清除iptables规则 for 端口 $port ...${PLAIN}"
+                # 删除 INPUT/OUTPUT 中指向该链的规则
+                iptables -D INPUT -p tcp --dport $port -j $chain_name 2>/dev/null
+                iptables -D INPUT -p udp --dport $port -j $chain_name 2>/dev/null
+                iptables -D OUTPUT -p tcp --sport $port -j $chain_name 2>/dev/null
+                iptables -D OUTPUT -p udp --sport $port -j $chain_name 2>/dev/null
+                # 清空并删除自定义链
+                iptables -F $chain_name 2>/dev/null
+                iptables -X $chain_name 2>/dev/null
+            done < "$CONFIG_FILE"
+        fi
+    fi
+
+    # 删除定时任务（过滤掉包含 "traffic-" 的任务）
     echo -e "${YELLOW}删除定时任务...${PLAIN}"
     crontab -l 2>/dev/null | grep -v "traffic-" | crontab -
     
-    # 删除文件
+    # 停止并删除 systemd 服务（例如 Telegram Bot 服务）
+    if [ -f "/etc/systemd/system/traffic-bot.service" ]; then
+        echo -e "${YELLOW}停止并删除 systemd 服务 (traffic-bot.service)...${PLAIN}"
+        systemctl stop traffic-bot.service 2>/dev/null
+        systemctl disable traffic-bot.service 2>/dev/null
+        rm -f /etc/systemd/system/traffic-bot.service
+        systemctl daemon-reload
+    fi
+    
+    # 删除安装的脚本和配置目录
     echo -e "${YELLOW}删除脚本和配置文件...${PLAIN}"
     rm -f /usr/local/bin/traffic-monitor
-    rm -rf $SCRIPT_DIR
+    rm -rf "$SCRIPT_DIR"
     
     echo -e "${GREEN}流量监控系统已成功卸载!${PLAIN}"
     
@@ -1304,6 +1333,7 @@ uninstall_system() {
     echo
     read -n 1 -s -r -p "按任意键继续..."
 }
+
 
 # 主函数
 check_root
