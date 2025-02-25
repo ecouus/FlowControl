@@ -13,7 +13,7 @@ SCRIPT_DIR="/root/ecouu"
 MONITOR_SCRIPT="$SCRIPT_DIR/traffic-monitor.sh"
 CONFIG_FILE="$SCRIPT_DIR/config.ini"
 TELEGRAM_CONFIG="$SCRIPT_DIR/telegram.conf"
-GITHUB_URL="https://raw.githubusercontent.com/ecouus/Shell/refs/heads/main/traffic-monitor.sh"
+GITHUB_URL="https://raw.githubusercontent.com/ecouus/FlowControl/refs/heads/main/traffic-monitor.sh"
 
 # 检查root权限
 check_root() {
@@ -799,6 +799,7 @@ EOF
 }
 
 # 添加流量阻断配置函数
+# 添加流量阻断配置函数
 setup_block_option() {
     clear
     echo -e "${CYAN}=============================${PLAIN}"
@@ -828,10 +829,11 @@ setup_block_option() {
     echo -e "${GREEN}1.${PLAIN} 启用/禁用阻断功能"
     echo -e "${GREEN}2.${PLAIN} 设置阻断方式(nftables/iptables)"
     echo -e "${GREEN}3.${PLAIN} 设置阻断行为(reject/drop)"
+    echo -e "${GREEN}4.${PLAIN} 立即运行检查"
     echo -e "${GREEN}0.${PLAIN} 返回主菜单"
     echo
     
-    read -p "请选择 [0-3]: " option
+    read -p "请选择 [0-4]: " option
     
     case $option in
         1)
@@ -841,7 +843,34 @@ setup_block_option() {
                     echo "BLOCK_ENABLED=false" > $block_config
                     [ -n "$current_type" ] && echo "BLOCK_TYPE=$current_type" >> $block_config
                     [ -n "$current_action" ] && echo "BLOCK_ACTION=$current_action" >> $block_config
-                    echo -e "${GREEN}阻断功能已禁用!${PLAIN}"
+                    
+                    # 添加这段代码来清除现有阻断规则
+                    echo -e "${YELLOW}正在清除现有阻断规则...${PLAIN}"
+                    
+                    # 清除nftables规则
+                    if [ "$current_type" = "nftables" ] && nft list table inet traffic_blocker &>/dev/null; then
+                        nft flush table inet traffic_blocker
+                        nft delete table inet traffic_blocker
+                    fi
+                    
+                    # 清除iptables规则
+                    if [ "$current_type" = "iptables" ]; then
+                        # 查找并删除所有与阻断相关的规则
+                        iptables-save | grep -E "REJECT|DROP" | grep "dport" | while read -r rule; do
+                            port=$(echo "$rule" | grep -o "dport [0-9]*" | awk '{print $2}')
+                            if [ -n "$port" ]; then
+                                iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
+                                iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
+                                iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
+                                iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
+                            fi
+                        done
+                    fi
+                    
+                    # 移除阻断脚本的定时任务
+                    crontab -l 2>/dev/null | grep -v "traffic-block.sh" | crontab -
+                    
+                    echo -e "${GREEN}阻断功能已禁用，所有阻断规则已清除!${PLAIN}"
                 fi
             else
                 read -p "确定要启用阻断功能吗? (y/n): " confirm
@@ -921,6 +950,26 @@ setup_block_option() {
             create_block_script
             ;;
         
+        4)
+            echo
+            echo -e "${YELLOW}正在进行端口流量检查并更新阻断状态...${PLAIN}"
+            
+            # 确保阻断脚本存在
+            local block_script="$SCRIPT_DIR/traffic-block.sh"
+            if [ ! -f "$block_script" ]; then
+                echo -e "${RED}错误: 未找到阻断脚本，请先创建。${PLAIN}"
+                read -n 1 -s -r -p "按任意键继续..."
+                return
+            fi
+            
+            # 运行阻断脚本进行检查
+            echo -e "${YELLOW}执行流量检查...${PLAIN}"
+            bash "$block_script" --force-check
+            
+            echo -e "${GREEN}检查完成! 超限端口已阻断，未超限端口已解除阻断。${PLAIN}"
+            ;;
+
+        
         0)
             return
             ;;
@@ -936,6 +985,7 @@ setup_block_option() {
     read -n 1 -s -r -p "按任意键继续..."
 }
 
+
 # 创建阻断脚本
 create_block_script() {
     local block_script="$SCRIPT_DIR/traffic-block.sh"
@@ -943,74 +993,78 @@ create_block_script() {
     cat > $block_script << 'EOF'
 #!/bin/bash
 
-# 阻断脚本配置
-SCRIPT_DIR="/root/ecouu"
-BLOCK_CONFIG="$SCRIPT_DIR/block_config.ini"
-MONITOR_SCRIPT="$SCRIPT_DIR/traffic-monitor.sh"
-CONFIG_FILE="$SCRIPT_DIR/config.ini"
-BLOCK_LOG="$SCRIPT_DIR/logs/block.log"
+# 配置文件
+SCRIPT_DIR="$SCRIPT_DIR"
+TRAFFIC_LOG="$TRAFFIC_LOG"
+PORT_CONFIG="$PORT_CONFIG"
+BLOCK_LOG="$SCRIPT_DIR/block.log"
+BLOCK_STATUS="$SCRIPT_DIR/block_status.txt"
 
-# 加载阻断配置
-if [ ! -f "$BLOCK_CONFIG" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 错误: 阻断配置文件不存在" >> $BLOCK_LOG
-    exit 1
+# 阻断配置
+BLOCK_ENABLED=true
+BLOCK_TYPE="$current_type"
+BLOCK_ACTION="$current_action"
+
+# 检查配置文件是否存在
+if [ -f "$SCRIPT_DIR/block_config.ini" ]; then
+    source "$SCRIPT_DIR/block_config.ini"
 fi
 
-source "$BLOCK_CONFIG"
-
-# 检查阻断功能是否启用
-if [ "$BLOCK_ENABLED" != "true" ]; then
+# 如果阻断功能未启用，退出
+if [ "$BLOCK_ENABLED" != "true" ] && [ "$1" != "--force-check" ]; then
     exit 0
 fi
 
-# 确保日志目录存在
-mkdir -p "$(dirname "$BLOCK_LOG")"
+# 创建日志文件
+touch "$BLOCK_LOG"
+touch "$BLOCK_STATUS"
 
-# 使用nftables阻断端口
-block_port_nftables() {
+# 阻断端口函数
+block_port() {
     local port="$1"
-    local action="${2:-$BLOCK_ACTION}"
+    local is_blocked=false
     
-    # 检查nftables表是否存在
-    if ! nft list table inet traffic_blocker &>/dev/null; then
-        nft add table inet traffic_blocker
-        nft add chain inet traffic_blocker input { type filter hook input priority 0 \; }
-        nft add chain inet traffic_blocker output { type filter hook output priority 0 \; }
+    # 检查端口是否已经被阻断
+    if grep -q "^$port:" "$BLOCK_STATUS"; then
+        is_blocked=true
     fi
     
-    # 检查该端口是否已经被阻断
-    if nft list table inet traffic_blocker | grep -q "tcp dport $port"; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - 端口 $port 已经被阻断" >> $BLOCK_LOG
+    # 如果已经阻断，不需要再次阻断
+    if [ "$is_blocked" = true ]; then
         return
     fi
     
-    # 添加阻断规则
-    nft add rule inet traffic_blocker input tcp dport $port $action
-    nft add rule inet traffic_blocker output tcp sport $port $action
-    
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 已使用nftables阻断端口 $port (行为: $action)" >> $BLOCK_LOG
-}
-
-# 使用iptables阻断端口
-block_port_iptables() {
-    local port="$1"
-    local action="${2:-$BLOCK_ACTION}"
-    
-    # 映射动作
-    local iptables_action="REJECT"
-    [ "$action" = "drop" ] && iptables_action="DROP"
-    
-    # 检查该端口是否已经被阻断
-    if iptables -C INPUT -p tcp --dport $port -j $iptables_action &>/dev/null; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - 端口 $port 已经被阻断" >> $BLOCK_LOG
-        return
+    if [ "$BLOCK_TYPE" = "nftables" ]; then
+        # 使用nftables
+        # 检查table是否存在
+        if ! nft list table inet traffic_blocker &>/dev/null; then
+            nft add table inet traffic_blocker
+            nft add chain inet traffic_blocker input { type filter hook input priority 0 \; }
+            nft add chain inet traffic_blocker output { type filter hook output priority 0 \; }
+        fi
+        
+        # 添加阻断规则
+        if [ "$BLOCK_ACTION" = "reject" ]; then
+            nft add rule inet traffic_blocker input tcp dport $port counter reject
+            nft add rule inet traffic_blocker output tcp sport $port counter reject
+        else
+            nft add rule inet traffic_blocker input tcp dport $port counter drop
+            nft add rule inet traffic_blocker output tcp sport $port counter drop
+        fi
+    else
+        # 使用iptables
+        if [ "$BLOCK_ACTION" = "reject" ]; then
+            iptables -I INPUT -p tcp --dport $port -j REJECT
+            iptables -I OUTPUT -p tcp --sport $port -j REJECT
+        else
+            iptables -I INPUT -p tcp --dport $port -j DROP
+            iptables -I OUTPUT -p tcp --sport $port -j DROP
+        fi
     fi
     
-    # 添加阻断规则
-    iptables -A INPUT -p tcp --dport $port -j $iptables_action
-    iptables -A OUTPUT -p tcp --sport $port -j $iptables_action
-    
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 已使用iptables阻断端口 $port (行为: $action)" >> $BLOCK_LOG
+    # 记录阻断状态
+    echo "$port:$(date +%s)" >> "$BLOCK_STATUS"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - 端口 $port 已被阻断" >> "$BLOCK_LOG"
 }
 
 # 解除端口阻断
@@ -1018,94 +1072,95 @@ unblock_port() {
     local port="$1"
     
     if [ "$BLOCK_TYPE" = "nftables" ]; then
-        # 删除nftables规则
+        # 删除nftables规则 - 改进处理方法
         if nft list table inet traffic_blocker &>/dev/null; then
-            nft delete rule inet traffic_blocker input handle $(nft -a list table inet traffic_blocker | grep "tcp dport $port" | grep -o 'handle [0-9]*' | awk '{print $2}') 2>/dev/null
-            nft delete rule inet traffic_blocker output handle $(nft -a list table inet traffic_blocker | grep "tcp sport $port" | grep -o 'handle [0-9]*' | awk '{print $2}') 2>/dev/null
-        fi
-    else
-        # 删除iptables规则
-        local iptables_action="REJECT"
-        [ "$BLOCK_ACTION" = "drop" ] && iptables_action="DROP"
-        
-        iptables -D INPUT -p tcp --dport $port -j $iptables_action 2>/dev/null
-        iptables -D OUTPUT -p tcp --sport $port -j $iptables_action 2>/dev/null
-    fi
-    
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 已解除端口 $port 的阻断" >> $BLOCK_LOG
-}
-
-# 检查并阻断超限端口
-check_and_block() {
-    local output=$($MONITOR_SCRIPT)
-    local current_port=""
-    local current_user=""
-    local block_status="unblocked"  # 用于跟踪阻断状态
-    
-    # 解析输出，查找超限的端口
-    while IFS= read -r line; do
-        # 提取端口号
-        if [[ $line =~ 端口:\ ([0-9]+) ]]; then
-            current_port="${BASH_REMATCH[1]}"
-            block_status="unblocked"  # 重置阻断状态
-        fi
-        
-        # 提取用户名
-        if [[ $line =~ \[监控\ (.*)\] ]]; then
-            current_user="${BASH_REMATCH[1]}"
-        fi
-        
-        # 检查流量限制状态
-        if [[ $line =~ 流量使用:\ ([0-9.]+)GB\ /\ ([0-9.]+)GB\ \(([0-9.]+)%\) ]]; then
-            local used="${BASH_REMATCH[1]}"
-            local limit="${BASH_REMATCH[2]}"
-            local percent="${BASH_REMATCH[3]}"
+            # 获取所有相关规则的句柄
+            local input_handles=$(nft -a list table inet traffic_blocker | grep "tcp dport $port" | grep -o 'handle [0-9]*' | awk '{print $2}')
+            local output_handles=$(nft -a list table inet traffic_blocker | grep "tcp sport $port" | grep -o 'handle [0-9]*' | awk '{print $2}')
             
-            # 检查是否超过限额
-            if (( $(echo "$percent >= 100" | bc -l) )); then
-                echo "$(date '+%Y-%m-%d %H:%M:%S') - 端口 $current_port ($current_user) 流量已超限: ${used}GB/${limit}GB" >> $BLOCK_LOG
-                
-                # 根据配置选择阻断方法
-                if [ "$BLOCK_TYPE" = "nftables" ]; then
-                    block_port_nftables $current_port
-                else
-                    block_port_iptables $current_port
-                fi
-                
-                block_status="blocked"
+            # 删除input规则
+            for handle in $input_handles; do
+                nft delete rule inet traffic_blocker input handle $handle 2>/dev/null
+            done
+            
+            # 删除output规则
+            for handle in $output_handles; do
+                nft delete rule inet traffic_blocker output handle $handle 2>/dev/null
+            done
+        fi
+    else
+        # 删除iptables规则 - 尝试两种阻断类型
+        iptables -D INPUT -p tcp --dport $port -j REJECT 2>/dev/null
+        iptables -D INPUT -p tcp --dport $port -j DROP 2>/dev/null
+        iptables -D OUTPUT -p tcp --sport $port -j REJECT 2>/dev/null
+        iptables -D OUTPUT -p tcp --sport $port -j DROP 2>/dev/null
+    fi
+    
+    # 从阻断状态文件中移除记录
+    if [ -f "$BLOCK_STATUS" ]; then
+        grep -v "^$port:" "$BLOCK_STATUS" > "$BLOCK_STATUS.tmp" && mv "$BLOCK_STATUS.tmp" "$BLOCK_STATUS"
+    fi
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - 已解除端口 $port 的阻断" >> "$BLOCK_LOG"
+}
+
+# 检查所有端口的流量使用情况
+check_ports() {
+    # 读取最新的流量日志
+    local ports_to_check=()
+    
+    # 获取所有已配置的端口
+    if [ -f "$PORT_CONFIG" ]; then
+        while IFS=: read -r port limit; do
+            ports_to_check+=("$port")
+        done < "$PORT_CONFIG"
+    fi
+    
+    # 获取当前已阻断的端口
+    if [ -f "$BLOCK_STATUS" ]; then
+        while IFS=: read -r port _; do
+            if ! [[ " ${ports_to_check[@]} " =~ " $port " ]]; then
+                ports_to_check+=("$port")
             fi
+        done < "$BLOCK_STATUS"
+    fi
+    
+    # 检查每个端口
+    for port in "${ports_to_check[@]}"; do
+        # 获取端口流量使用率
+        local usage=0
+        if [ -f "$TRAFFIC_LOG" ]; then
+            usage=$(grep "^$port:" "$TRAFFIC_LOG" | tail -1 | awk -F: '{print $3}' | tr -d '%')
         fi
         
-        # 检查流量状态行
-        if [[ $line =~ 状态:\ (.*) && "$block_status" != "blocked" ]]; then
-            local status="${BASH_REMATCH[1]}"
-            # 如果已标记为超限但流量实际未超，则解除阻断
-            if [[ "$status" =~ "正常" ]]; then
-                unblock_port $current_port
+        # 如果使用率不存在，设置为0
+        if [ -z "$usage" ]; then
+            usage=0
+        fi
+        
+        # 检查是否超过100%
+        if [ "${usage%.*}" -ge 100 ]; then
+            # 超限，阻断端口
+            block_port "$port"
+        else
+            # 未超限，解除阻断
+            if grep -q "^$port:" "$BLOCK_STATUS" 2>/dev/null; then
+                unblock_port "$port"
             fi
         fi
-    done <<< "$output"
+    done
 }
 
-# 保存永久规则
-save_rules() {
-    if [ "$BLOCK_TYPE" = "nftables" ]; then
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-    else
-        if command -v iptables-save &>/dev/null; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || iptables-save > /etc/iptables.rules 2>/dev/null
-        fi
-    fi
-}
+# 执行检查
+check_ports
 
-# 主函数
-main() {
-    check_and_block
-    save_rules
-}
-
-main
+# 处理命令行参数
+if [ "$1" = "--force-check" ]; then
+    # 已在上面执行了check_ports，无需额外操作
+    exit 0
+fi
 EOF
+
     
     chmod +x $block_script
     
