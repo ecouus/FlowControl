@@ -1,5 +1,6 @@
 #!/bin/bash
-
+#创建连接符号，输入trax快速调用
+ln -sf ~/traffic-menu.sh /usr/local/bin/trax
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
